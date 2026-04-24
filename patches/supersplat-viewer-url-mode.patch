@@ -1,0 +1,22 @@
+diff --git a/src/index.html b/src/index.html
+index 36561c7..bbe5f00 100644
+--- a/src/index.html
++++ b/src/index.html
+@@ -482,6 +482,17 @@
+                 const canvas = document.getElementById('application-canvas');
+                 const settingsJson = await settings;
+                 const viewer = await main(canvas, settingsJson, config);
++                window.sse.viewer = viewer;
++
++                const mode = new URL(location.href).searchParams.get('mode');
++                if (mode === 'fly' || mode === 'walk') {
++                    const waitForCamera = () => new Promise((resolve) => {
++                        const tick = () => viewer.cameraManager ? resolve() : requestAnimationFrame(tick);
++                        tick();
++                    });
++                    await waitForCamera();
++                    viewer.global.events.fire('inputEvent', mode === 'fly' ? 'requestFirstPerson' : 'toggleWalk', {});
++                }
+             });
+         </script>
+     </body>

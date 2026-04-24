@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Photoreal Digital Twin MVP</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --paper: #f3ead6;
+      --ink: #16130d;
+      --soot: #080705;
+      --brass: #d9a83a;
+      --blue: #81b7ff;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: ui-serif, Georgia, Cambria, "Times New Roman", serif;
+      color: var(--paper);
+      background:
+        radial-gradient(circle at 70% 20%, rgba(217,168,58,.22), transparent 30rem),
+        linear-gradient(130deg, #070604 0%, #16120b 42%, #0b1118 100%);
+      display: grid;
+      place-items: center;
+      padding: 32px;
+    }
+    main {
+      width: min(980px, 100%);
+      border: 1px solid rgba(243,234,214,.28);
+      background: rgba(8,7,5,.64);
+      box-shadow: 0 30px 100px rgba(0,0,0,.5);
+      padding: clamp(24px, 4vw, 54px);
+    }
+    .eyebrow {
+      margin: 0 0 18px;
+      font: 700 12px/1.2 ui-monospace, SFMono-Regular, Menlo, monospace;
+      text-transform: uppercase;
+      letter-spacing: .16em;
+      color: var(--brass);
+    }
+    h1 {
+      max-width: 720px;
+      margin: 0 0 18px;
+      font-size: clamp(42px, 8vw, 92px);
+      line-height: .9;
+      letter-spacing: -.06em;
+    }
+    p {
+      max-width: 720px;
+      margin: 0 0 16px;
+      color: rgba(243,234,214,.76);
+      font-size: clamp(18px, 2.4vw, 24px);
+      line-height: 1.35;
+    }
+    .actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 28px; }
+    a.button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 48px;
+      padding: 0 18px;
+      border: 1px solid rgba(243,234,214,.35);
+      color: var(--ink);
+      background: var(--brass);
+      text-decoration: none;
+      font: 800 13px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+      text-transform: uppercase;
+      letter-spacing: .08em;
+    }
+    a.secondary { color: var(--paper); background: transparent; }
+    code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--blue); }
+    .notes { margin-top: 28px; border-top: 1px solid rgba(243,234,214,.18); padding-top: 18px; }
+    .notes p { font-size: 15px; line-height: 1.55; }
+  </style>
+</head>
+<body>
+  <main>
+    <p class="eyebrow">0-to-1 photoreal walkthrough</p>
+    <h1>Real capture first. Map extrusion second.</h1>
+    <p>This launcher opens the official SuperSplat Viewer against a real captured Gaussian splat scene. It starts in Fly mode with <code>WASD</code> / arrow-key movement; the local scene also includes generated voxel and GLB collision assets.</p>
+    <div class="actions">
+      <a class="button" id="open-local" href="#">Open Walkthrough</a>
+      <a class="button secondary" id="open-walk" href="#">Open Walk Mode</a>
+      <a class="button secondary" id="open-public" href="#">Public Asset</a>
+    </div>
+    <div class="notes">
+      <p><strong>Why this replaces the old MVP:</strong> the old OSM scene only had inferred building massing and top-down imagery. This uses photoreal radiance-field data, which is the visual layer needed for a digital twin-like walkthrough.</p>
+      <p><strong>Current limitation:</strong> the generated collision works as a first pass, but capture-specific tuning is still required before Walk mode feels production-grade. Fly mode is the reliable MVP control path today.</p>
+    </div>
+  </main>
+  <script>
+    const viewer = 'http://127.0.0.1:3002/';
+    const here = new URL(location.href);
+    const origin = `${here.protocol}//${here.host}`;
+    const settings = `${origin}/settings.json`;
+    const localAsset = `${origin}/assets/apartment.sog`;
+    const publicAsset = 'https://raw.githubusercontent.com/playcanvas/engine/main/examples/assets/splats/apartment.sog';
+    const voxel = `${origin}/assets/apartment.voxel.json`;
+    const makeUrl = (content, mode = 'fly', collision = '') => {
+      const params = new URLSearchParams({
+        content,
+        settings,
+        mode
+      });
+      if (collision) params.set('collision', collision);
+      return `${viewer}?${params.toString()}&aa&nofx&noanim`;
+    };
+    document.getElementById('open-local').href = makeUrl(localAsset, 'fly', voxel);
+    document.getElementById('open-walk').href = makeUrl(localAsset, 'walk', voxel);
+    document.getElementById('open-public').href = makeUrl(publicAsset, 'fly');
+  </script>
+</body>
+</html>

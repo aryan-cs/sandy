@@ -1,0 +1,23 @@
+.DS_Store
+.env
+.env.*
+*.log
+*.tmp
+
+# Local investigation and browser automation artifacts
+.investigation/
+.playwright-cli/
+output/
+
+# External repos are pulled by scripts/setup_external.sh, not vendored.
+external/
+
+# JavaScript build/dependency outputs
+node_modules/
+dist/
+.vite/
+.cache/
+coverage/
+
+# Generated splat experiments, not source.
+mvps/splat-generated/
