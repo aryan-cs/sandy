@@ -32,6 +32,18 @@ const PRESETS = [
   { label: 'Golden Gate Bridge, SF', lat: 37.81993, lng: -122.47826, altitude: 260 },
 ];
 
+const GIB = 1024 * 1024 * 1024;
+const TILE_QUALITY = {
+  errorTarget: 6,
+  maxDepth: 28,
+  maxTilesProcessed: 900,
+  downloadJobs: 32,
+  parseJobs: 8,
+  processJobs: 48,
+  minBytes: 0.55 * GIB,
+  maxBytes: 1.1 * GIB,
+};
+
 const app = document.querySelector('#app');
 let selectedLocation = { ...PRESETS[0] };
 let googleMap = null;
@@ -107,10 +119,11 @@ app.innerHTML = `
         <div class="hud-grid">
           <span>WASD move</span>
           <span>Mouse look</span>
-          <span>Shift sprint</span>
-          <span>Q/C down</span>
-          <span>Space/E up</span>
-          <span>F ground follow</span>
+          <span>Shift crouch</span>
+          <span>Ctrl/Cmd sprint</span>
+          <span>Space jump</span>
+          <span>F fly</span>
+          <span id="mode-status">Walk mode</span>
         </div>
         <div id="credits" class="credits"></div>
       </div>
@@ -138,6 +151,7 @@ const elements = {
   hud: document.querySelector('#hud'),
   hudLocation: document.querySelector('#hud-location'),
   hudCoords: document.querySelector('#hud-coords'),
+  modeStatus: document.querySelector('#mode-status'),
   credits: document.querySelector('#credits'),
 };
 
@@ -444,8 +458,15 @@ class LocationSandbox {
     this.right = new Vector3();
     this.raycaster = new Raycaster();
     this.down = new Vector3(0, -1, 0);
-    this.groundFollow = true;
-    this.eyeHeight = 2.2;
+    this.flyMode = false;
+    this.grounded = false;
+    this.verticalVelocity = 0;
+    this.gravity = -24;
+    this.jumpVelocity = 9.2;
+    this.standingEyeHeight = 2.2;
+    this.crouchEyeHeight = 1.25;
+    this.eyeHeight = this.standingEyeHeight;
+    this.groundY = null;
     this.lastGroundProbe = 0;
     this.bound = {
       resize: () => this.onResize(),
@@ -502,8 +523,14 @@ class LocationSandbox {
       lon: this.location.lng * MathUtils.DEG2RAD,
       height: 0,
     }));
-    this.tiles.errorTarget = 18;
-    this.tiles.maxDepth = 22;
+    this.tiles.errorTarget = TILE_QUALITY.errorTarget;
+    this.tiles.maxDepth = TILE_QUALITY.maxDepth;
+    this.tiles.maxTilesProcessed = TILE_QUALITY.maxTilesProcessed;
+    this.tiles.downloadQueue.maxJobs = TILE_QUALITY.downloadJobs;
+    this.tiles.parseQueue.maxJobs = TILE_QUALITY.parseJobs;
+    this.tiles.processNodeQueue.maxJobs = TILE_QUALITY.processJobs;
+    this.tiles.lruCache.minBytesSize = TILE_QUALITY.minBytes;
+    this.tiles.lruCache.maxBytesSize = TILE_QUALITY.maxBytes;
 
     this.scene.add(this.tiles.group);
     this.tiles.setCamera(this.camera);
@@ -535,13 +562,28 @@ class LocationSandbox {
   }
 
   onKeyDown(event) {
-    if (['KeyW', 'KeyA', 'KeyS', 'KeyD', 'Space', 'KeyQ', 'KeyC', 'KeyE', 'ShiftLeft', 'ShiftRight'].includes(event.code)) {
+    const gameplayKeys = [
+      'KeyW', 'KeyA', 'KeyS', 'KeyD',
+      'Space', 'ShiftLeft', 'ShiftRight',
+      'ControlLeft', 'ControlRight', 'MetaLeft', 'MetaRight',
+      'KeyF',
+    ];
+    if (gameplayKeys.includes(event.code)) {
       event.preventDefault();
     }
+
     if (event.code === 'KeyF' && !event.repeat) {
-      this.groundFollow = !this.groundFollow;
-      setStatus(`Ground follow ${this.groundFollow ? 'enabled' : 'disabled'}.`);
+      this.flyMode = !this.flyMode;
+      this.verticalVelocity = 0;
+      this.grounded = false;
+      setStatus(`${this.flyMode ? 'Fly' : 'Walk'} mode enabled.`);
     }
+
+    if (event.code === 'Space' && !event.repeat && !this.flyMode && this.grounded) {
+      this.verticalVelocity = this.jumpVelocity;
+      this.grounded = false;
+    }
+
     this.keys.add(event.code);
   }
 
@@ -553,51 +595,124 @@ class LocationSandbox {
   }
 
   updateCamera(delta) {
-    const speed = (this.keys.has('ShiftLeft') || this.keys.has('ShiftRight')) ? 115 : 38;
-    const verticalSpeed = speed * 0.75;
+    this.camera.rotation.order = 'YXZ';
+    this.camera.rotation.y = this.pointer.yaw;
+    this.camera.rotation.x = this.pointer.pitch;
+    this.camera.rotation.z = 0;
 
-    this.forward.set(
-      Math.sin(this.pointer.yaw),
-      0,
-      Math.cos(this.pointer.yaw) * -1,
-    ).normalize();
-    this.right.set(this.forward.z, 0, -this.forward.x).normalize();
+    const sprinting = this.keys.has('ControlLeft') ||
+      this.keys.has('ControlRight') ||
+      this.keys.has('MetaLeft') ||
+      this.keys.has('MetaRight');
+    const crouching = !this.flyMode && (this.keys.has('ShiftLeft') || this.keys.has('ShiftRight'));
+    const targetEyeHeight = crouching ? this.crouchEyeHeight : this.standingEyeHeight;
+    this.eyeHeight = MathUtils.lerp(this.eyeHeight, targetEyeHeight, Math.min(1, delta * 12));
+
+    const speed = this.flyMode
+      ? (sprinting ? 95 : 42)
+      : crouching
+        ? 4.2
+        : sprinting
+          ? 16
+          : 7.5;
+
+    if (this.flyMode) {
+      this.forward.set(0, 0, -1).applyQuaternion(this.camera.quaternion).normalize();
+      this.right.set(1, 0, 0).applyQuaternion(this.camera.quaternion).normalize();
+    } else {
+      this.forward.set(
+        Math.sin(this.pointer.yaw),
+        0,
+        Math.cos(this.pointer.yaw) * -1,
+      ).normalize();
+      this.right.set(this.forward.z, 0, -this.forward.x).normalize();
+    }
 
     const move = new Vector3();
     if (this.keys.has('KeyW')) move.add(this.forward);
     if (this.keys.has('KeyS')) move.sub(this.forward);
     if (this.keys.has('KeyD')) move.add(this.right);
     if (this.keys.has('KeyA')) move.sub(this.right);
-    if (move.lengthSq() > 0) move.normalize().multiplyScalar(speed * delta);
 
-    if (this.keys.has('Space') || this.keys.has('KeyE')) move.y += verticalSpeed * delta;
-    if (this.keys.has('KeyQ') || this.keys.has('KeyC')) move.y -= verticalSpeed * delta;
+    if (this.flyMode) {
+      if (this.keys.has('Space')) move.y += 1;
+      if (this.keys.has('ShiftLeft') || this.keys.has('ShiftRight')) move.y -= 1;
+    } else {
+      move.y = 0;
+    }
+
+    if (move.lengthSq() > 0) move.normalize().multiplyScalar(speed * delta);
 
     this.camera.position.add(move);
 
-    if (this.groundFollow && performance.now() - this.lastGroundProbe > 80) {
-      this.lastGroundProbe = performance.now();
-      this.snapToVisibleGround();
+    if (this.flyMode) {
+      this.grounded = false;
+      this.verticalVelocity = 0;
+    } else {
+      this.applyWalkingVerticalMotion(delta);
     }
 
-    this.camera.rotation.order = 'YXZ';
-    this.camera.rotation.y = this.pointer.yaw;
-    this.camera.rotation.x = this.pointer.pitch;
-    this.camera.rotation.z = 0;
+    this.updateModeStatus(crouching, sprinting);
   }
 
-  snapToVisibleGround() {
-    if (!this.tiles?.group) return;
+  applyWalkingVerticalMotion(delta) {
+    const groundY = this.probeGroundY();
+    if (groundY === null) {
+      return;
+    }
+
+    const targetY = groundY + this.eyeHeight;
+
+    if (this.camera.position.y < targetY) {
+      this.camera.position.y = targetY;
+      this.verticalVelocity = 0;
+      this.grounded = true;
+      return;
+    }
+
+    if (this.verticalVelocity <= 0 && this.camera.position.y <= targetY + 0.25) {
+      this.camera.position.y = MathUtils.lerp(this.camera.position.y, targetY, Math.min(1, delta * 18));
+      if (Math.abs(this.camera.position.y - targetY) < 0.04) {
+        this.camera.position.y = targetY;
+      }
+      this.verticalVelocity = 0;
+      this.grounded = true;
+      return;
+    }
+
+    this.verticalVelocity += this.gravity * delta;
+    this.camera.position.y += this.verticalVelocity * delta;
+    this.grounded = false;
+  }
+
+  probeGroundY() {
+    if (!this.tiles?.group) return null;
+    if (performance.now() - this.lastGroundProbe < 45) {
+      return this.groundY;
+    }
+
+    this.lastGroundProbe = performance.now();
     const origin = this.camera.position.clone();
     origin.y += 450;
     this.raycaster.set(origin, this.down);
     this.raycaster.far = 1500;
     const hits = this.raycaster.intersectObject(this.tiles.group, true);
-    if (!hits.length) return;
+    this.groundY = hits.length ? hits[0].point.y : null;
+    return this.groundY;
+  }
 
-    const targetY = hits[0].point.y + this.eyeHeight;
-    if (Number.isFinite(targetY) && Math.abs(targetY - this.camera.position.y) < 300) {
-      this.camera.position.y = MathUtils.lerp(this.camera.position.y, Math.max(targetY, 1.5), 0.35);
+  updateModeStatus(crouching, sprinting) {
+    if (!elements.modeStatus) return;
+    if (this.flyMode) {
+      elements.modeStatus.textContent = sprinting ? 'Fly sprint' : 'Fly mode';
+    } else if (!this.grounded) {
+      elements.modeStatus.textContent = 'Airborne';
+    } else if (crouching) {
+      elements.modeStatus.textContent = 'Crouch';
+    } else if (sprinting) {
+      elements.modeStatus.textContent = 'Sprint';
+    } else {
+      elements.modeStatus.textContent = 'Walk mode';
     }
   }
 

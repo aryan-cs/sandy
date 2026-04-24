@@ -30,12 +30,21 @@ There are two viable Google-backed paths:
    - `TilesFadePlugin` for better tile transitions.
    - `GLTFExtensionsPlugin` with DRACO support.
    - `ReorientationPlugin` to recenter the global tileset at the selected lat/lng.
-7. Start a pointer-lock first-person controller.
-8. Each animation frame updates camera movement, tile camera/resolution, tile streaming, rendering, and attribution display.
+7. Apply a high-quality tile streaming preset: lower screen-space error, deeper traversal, larger cache, and higher loading concurrency.
+8. Start a pointer-lock first-person controller.
+9. Each animation frame updates camera movement, tile camera/resolution, tile streaming, rendering, and attribution display.
+
+## Control Scheme
+
+- `WASD`: movement.
+- `Shift`: crouch while walking.
+- `Cmd` / `Ctrl`: sprint.
+- `Space`: jump while walking, ascend while flying.
+- `F`: toggle fly mode.
 
 ## Collision Strategy
 
-This first Google-location MVP does not claim production collision. It uses a downward raycast against currently visible tile meshes to approximate ground following. That is enough for 0-to-1 immersion, but production needs one of these:
+This first Google-location MVP does not claim production collision. It uses a downward raycast against currently visible tile meshes to approximate walking ground height and a simple gravity/jump loop. That is enough for 0-to-1 immersion, but production needs one of these:
 
 - Runtime proxy collider extraction from loaded tile meshes, constrained to what Google terms allow.
 - Separate owned collision meshes for supported areas.

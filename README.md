@@ -68,6 +68,8 @@ These examples are useful references for avatar/game controls, first-person/thir
 
 This MVP lets you choose a location with Google Maps/Places and then enter a first-person Three.js scene centered on that latitude/longitude using Google Photorealistic 3D Tiles.
 
+Controls: `WASD` movement, `Shift` crouch, `Cmd` / `Ctrl` sprint, `Space` jump, `F` fly.
+
 Required Google APIs:
 
 - Maps JavaScript API

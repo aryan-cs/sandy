@@ -30,13 +30,17 @@ http://127.0.0.1:5173/
 - Search with Google Places Autocomplete, click the 2D map, use a preset, or type lat/lng manually.
 - Click `Enter 3D Sandbox` to load Google Photorealistic 3D Tiles at that coordinate.
 - Click the 3D viewport to lock the mouse.
-- `WASD` moves, mouse looks, `Shift` sprints.
-- `Space`/`E` moves up, `Q`/`C` moves down.
-- `F` toggles ground-follow raycast.
+- `WASD` moves and mouse looks.
+- `Shift` crouches while walking.
+- `Cmd` / `Ctrl` sprints.
+- `Space` jumps while walking and ascends while flying.
+- `F` toggles fly mode.
 - `Esc` releases pointer lock.
 
 ## Current implementation boundary
 
-This is a location-selectable 0-to-1 outdoor digital twin sandbox. It does not yet solve production collision. The MVP uses a downward raycast against visible tiles to approximate ground height and lets the user fly/step around while Google tiles stream in.
+This is a location-selectable 0-to-1 outdoor digital twin sandbox. It does not yet solve production collision. The MVP uses a downward raycast against visible tiles to approximate ground height and a simple gravity/jump loop while Google tiles stream in.
 
 For production, add a proxy collision layer or physics mesh strategy. Do not derive, cache, extract, or resell geometry from Google tiles; respect Google attribution and cache-control requirements.
+
+See `QUALITY_NOTES.md` for why Google Photorealistic 3D Tiles can look poor at human-scale close-up distances and what to do about it.
