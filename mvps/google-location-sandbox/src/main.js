@@ -48,9 +48,13 @@ const app = document.querySelector('#app');
 let selectedLocation = { ...PRESETS[0] };
 let googleMap = null;
 let googleMarker = null;
+let worldSelectorMap = null;
+let worldSelectorMarker = null;
+let pendingWorldLocation = null;
 let activeSandbox = null;
 let currentGoogleScriptKey = '';
 let autocompleteMode = 'not-loaded';
+let worldSelectorMode = 'not-loaded';
 
 app.innerHTML = `
   <section class="shell">
@@ -127,6 +131,42 @@ app.innerHTML = `
         </div>
         <div id="credits" class="credits"></div>
       </div>
+      <button id="world-button" class="world-button" type="button" aria-label="Open world map selector">Map</button>
+      <div id="world-modal" class="world-modal hidden" aria-hidden="true">
+        <div class="world-card" role="dialog" aria-modal="true" aria-labelledby="world-title">
+          <div class="world-card-head">
+            <div>
+              <p class="eyebrow">Change world</p>
+              <h2 id="world-title">Choose a new location.</h2>
+            </div>
+            <button id="world-close" class="ghost square" type="button" aria-label="Close map selector">X</button>
+          </div>
+          <p class="world-copy">Search, click the map, drag the marker, or type coordinates. Applying the location reloads the 3D tileset around that point.</p>
+          <div id="world-warning" class="world-warning hidden"></div>
+          <div id="world-autocomplete-slot" class="autocomplete-slot world-search">
+            <input placeholder="Google Places search loads here" disabled />
+          </div>
+          <div id="world-map" class="world-map map-placeholder">Google map selector loads here.</div>
+          <div class="manual-grid world-fields">
+            <label class="field compact">
+              <span>Latitude</span>
+              <input id="world-lat" inputmode="decimal" />
+            </label>
+            <label class="field compact">
+              <span>Longitude</span>
+              <input id="world-lng" inputmode="decimal" />
+            </label>
+            <label class="field compact">
+              <span>Altitude / m</span>
+              <input id="world-altitude" inputmode="decimal" />
+            </label>
+          </div>
+          <div class="world-actions">
+            <button id="world-apply" type="button">Load This World</button>
+            <button id="world-cancel" class="ghost" type="button">Cancel</button>
+          </div>
+        </div>
+      </div>
     </main>
   </section>
 `;
@@ -153,6 +193,17 @@ const elements = {
   hudCoords: document.querySelector('#hud-coords'),
   modeStatus: document.querySelector('#mode-status'),
   credits: document.querySelector('#credits'),
+  worldButton: document.querySelector('#world-button'),
+  worldModal: document.querySelector('#world-modal'),
+  worldClose: document.querySelector('#world-close'),
+  worldCancel: document.querySelector('#world-cancel'),
+  worldApply: document.querySelector('#world-apply'),
+  worldWarning: document.querySelector('#world-warning'),
+  worldAutocompleteSlot: document.querySelector('#world-autocomplete-slot'),
+  worldMap: document.querySelector('#world-map'),
+  worldLat: document.querySelector('#world-lat'),
+  worldLng: document.querySelector('#world-lng'),
+  worldAltitude: document.querySelector('#world-altitude'),
 };
 
 initUi();
@@ -187,6 +238,17 @@ function initUi() {
   });
   elements.enter.addEventListener('click', () => enterSandbox().catch(handleFatalError));
   elements.exit.addEventListener('click', exitSandbox);
+  elements.worldButton.addEventListener('click', () => openWorldSelector().catch(handleFatalError));
+  elements.worldClose.addEventListener('click', closeWorldSelector);
+  elements.worldCancel.addEventListener('click', closeWorldSelector);
+  elements.worldApply.addEventListener('click', () => applyWorldSelection().catch(handleFatalError));
+  elements.worldModal.addEventListener('click', (event) => {
+    if (event.target === elements.worldModal) closeWorldSelector();
+  });
+  for (const input of [elements.worldLat, elements.worldLng, elements.worldAltitude]) {
+    input.addEventListener('change', updatePendingWorldFromFields);
+    input.addEventListener('blur', updatePendingWorldFromFields);
+  }
 
   setSelectedLocation(selectedLocation);
   updateLaunchState();
@@ -209,6 +271,12 @@ function updateLaunchState() {
   if (!hasKey) {
     setStatus('A Google Maps Platform API key is required before live Places search or 3D Tiles can load.');
   }
+}
+
+function syncWorldSelectorFields(location = selectedLocation) {
+  elements.worldLat.value = Number(location.lat).toFixed(6);
+  elements.worldLng.value = Number(location.lng).toFixed(6);
+  elements.worldAltitude.value = String(Math.round(Number(location.altitude ?? selectedLocation.altitude ?? 180)));
 }
 
 function updateLocationFromManualInputs() {
@@ -253,7 +321,110 @@ function setSelectedLocation(location, options = {}) {
     googleMarker?.setPosition(position);
   }
 
+  if (worldSelectorMap && options.panWorldMap) {
+    const position = { lat: selectedLocation.lat, lng: selectedLocation.lng };
+    worldSelectorMap.panTo(position);
+    worldSelectorMap.setZoom(Math.max(worldSelectorMap.getZoom() || 17, 17));
+    worldSelectorMarker?.setPosition(position);
+  }
+
   updateLaunchState();
+}
+
+async function openWorldSelector() {
+  pendingWorldLocation = { ...selectedLocation };
+  syncWorldSelectorFields(pendingWorldLocation);
+  elements.worldModal.classList.remove('hidden');
+  elements.worldModal.setAttribute('aria-hidden', 'false');
+  elements.worldWarning.classList.add('hidden');
+  elements.worldWarning.textContent = '';
+
+  if (document.pointerLockElement) {
+    document.exitPointerLock();
+  }
+
+  const apiKey = getApiKey();
+  if (!apiKey) {
+    elements.worldWarning.textContent = 'Paste a restricted Google Maps Platform key first. The selector still lets you edit coordinates manually, but live Google search/map needs Maps JavaScript API and Places API.';
+    elements.worldWarning.classList.remove('hidden');
+    elements.worldAutocompleteSlot.innerHTML = '<input placeholder="Google Places requires an API key" disabled />';
+    elements.worldMap.classList.add('map-placeholder');
+    elements.worldMap.textContent = 'Paste an API key to load the map selector.';
+    return;
+  }
+
+  localStorage.setItem(STORAGE_KEY, apiKey);
+  elements.worldWarning.textContent = 'Loading Google map selector...';
+  elements.worldWarning.classList.remove('hidden');
+
+  await loadGoogleMaps(apiKey);
+  await initWorldSelectorMap();
+  await initWorldSelectorAutocomplete();
+
+  elements.worldWarning.textContent = `Selector ready (${worldSelectorMode}).`;
+}
+
+function closeWorldSelector() {
+  elements.worldModal.classList.add('hidden');
+  elements.worldModal.setAttribute('aria-hidden', 'true');
+}
+
+function setPendingWorldLocation(location, options = {}) {
+  pendingWorldLocation = {
+    label: location.label || 'Selected world',
+    lat: Number(location.lat),
+    lng: Number(location.lng),
+    altitude: Number(location.altitude ?? pendingWorldLocation?.altitude ?? selectedLocation.altitude ?? 180),
+  };
+
+  syncWorldSelectorFields(pendingWorldLocation);
+
+  if (worldSelectorMap && options.panMap) {
+    const position = { lat: pendingWorldLocation.lat, lng: pendingWorldLocation.lng };
+    worldSelectorMap.panTo(position);
+    worldSelectorMap.setZoom(Math.max(worldSelectorMap.getZoom() || 17, 17));
+    worldSelectorMarker?.setPosition(position);
+  }
+}
+
+function updatePendingWorldFromFields() {
+  const lat = Number.parseFloat(elements.worldLat.value);
+  const lng = Number.parseFloat(elements.worldLng.value);
+  const altitude = Number.parseFloat(elements.worldAltitude.value);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+    elements.worldWarning.textContent = 'Latitude and longitude must be valid numbers.';
+    elements.worldWarning.classList.remove('hidden');
+    return false;
+  }
+  if (lat < -85 || lat > 85 || lng < -180 || lng > 180) {
+    elements.worldWarning.textContent = 'Latitude must be between -85 and 85, longitude between -180 and 180.';
+    elements.worldWarning.classList.remove('hidden');
+    return false;
+  }
+
+  setPendingWorldLocation({
+    label: `Map selector ${lat.toFixed(5)}, ${lng.toFixed(5)}`,
+    lat,
+    lng,
+    altitude: Number.isFinite(altitude) ? altitude : selectedLocation.altitude,
+  }, { panMap: true });
+  elements.worldWarning.classList.add('hidden');
+  return true;
+}
+
+async function applyWorldSelection() {
+  if (!updatePendingWorldFromFields()) return;
+  if (!pendingWorldLocation) return;
+
+  const hadSandbox = Boolean(activeSandbox);
+  setSelectedLocation(pendingWorldLocation, { panMap: true });
+  closeWorldSelector();
+
+  if (hadSandbox) {
+    await enterSandbox();
+  } else {
+    setStatus(`Selected ${selectedLocation.label}. Click Enter 3D Sandbox to load it.`);
+  }
 }
 
 async function initGooglePicker() {
@@ -341,6 +512,63 @@ async function initMapPreview() {
   });
 }
 
+async function initWorldSelectorMap() {
+  const { Map } = await google.maps.importLibrary('maps');
+  const position = { lat: pendingWorldLocation.lat, lng: pendingWorldLocation.lng };
+
+  elements.worldMap.classList.remove('map-placeholder');
+  elements.worldMap.textContent = '';
+
+  if (!worldSelectorMap) {
+    worldSelectorMap = new Map(elements.worldMap, {
+      center: position,
+      zoom: 18,
+      mapTypeId: 'satellite',
+      tilt: 0,
+      clickableIcons: true,
+      fullscreenControl: false,
+      mapTypeControl: false,
+      streetViewControl: false,
+    });
+
+    worldSelectorMarker = new google.maps.Marker({
+      map: worldSelectorMap,
+      position,
+      draggable: true,
+      title: 'New sandbox start location',
+    });
+
+    worldSelectorMap.addListener('click', (event) => {
+      if (!event.latLng) return;
+      const lat = event.latLng.lat();
+      const lng = event.latLng.lng();
+      setPendingWorldLocation({
+        label: `Map selector ${lat.toFixed(5)}, ${lng.toFixed(5)}`,
+        lat,
+        lng,
+        altitude: pendingWorldLocation.altitude,
+      });
+      worldSelectorMarker.setPosition({ lat, lng });
+    });
+
+    worldSelectorMarker.addListener('dragend', (event) => {
+      if (!event.latLng) return;
+      const lat = event.latLng.lat();
+      const lng = event.latLng.lng();
+      setPendingWorldLocation({
+        label: `Map selector ${lat.toFixed(5)}, ${lng.toFixed(5)}`,
+        lat,
+        lng,
+        altitude: pendingWorldLocation.altitude,
+      });
+    });
+  }
+
+  worldSelectorMap.panTo(position);
+  worldSelectorMap.setZoom(Math.max(worldSelectorMap.getZoom() || 17, 17));
+  worldSelectorMarker.setPosition(position);
+}
+
 async function initAutocomplete() {
   elements.autocompleteSlot.innerHTML = '';
 
@@ -398,6 +626,58 @@ async function initAutocomplete() {
     }, { panMap: true });
   });
   autocompleteMode = 'legacy Autocomplete fallback';
+}
+
+async function initWorldSelectorAutocomplete() {
+  elements.worldAutocompleteSlot.innerHTML = '';
+
+  const applyPlace = async (place, labelFallback = 'Google place') => {
+    const latLng = place.location || place.geometry?.location;
+    if (!latLng) {
+      elements.worldWarning.textContent = 'That place did not return geometry. Try another result.';
+      elements.worldWarning.classList.remove('hidden');
+      return;
+    }
+    const lat = typeof latLng.lat === 'function' ? latLng.lat() : latLng.lat;
+    const lng = typeof latLng.lng === 'function' ? latLng.lng() : latLng.lng;
+    setPendingWorldLocation({
+      label: place.displayName || place.name || place.formattedAddress || place.formatted_address || labelFallback,
+      lat,
+      lng,
+      altitude: pendingWorldLocation.altitude,
+    }, { panMap: true });
+  };
+
+  try {
+    const places = await google.maps.importLibrary('places');
+    if (places.PlaceAutocompleteElement) {
+      const autocomplete = new places.PlaceAutocompleteElement();
+      autocomplete.className = 'place-autocomplete';
+      autocomplete.addEventListener('gmp-select', async (event) => {
+        const prediction = event.placePrediction || event.detail?.placePrediction || event.detail?.prediction;
+        if (!prediction?.toPlace) return;
+        const place = prediction.toPlace();
+        await place.fetchFields({ fields: ['displayName', 'formattedAddress', 'location', 'viewport'] });
+        await applyPlace(place, prediction.text?.toString() || 'Google place');
+      });
+      elements.worldAutocompleteSlot.appendChild(autocomplete);
+      worldSelectorMode = 'PlaceAutocompleteElement';
+      return;
+    }
+  } catch (error) {
+    console.warn('PlaceAutocompleteElement unavailable for world selector, falling back to legacy Autocomplete.', error);
+  }
+
+  const input = document.createElement('input');
+  input.placeholder = 'Search Google Places';
+  input.autocomplete = 'off';
+  elements.worldAutocompleteSlot.appendChild(input);
+
+  const autocomplete = new google.maps.places.Autocomplete(input, {
+    fields: ['geometry', 'name', 'formatted_address'],
+  });
+  autocomplete.addListener('place_changed', () => applyPlace(autocomplete.getPlace()));
+  worldSelectorMode = 'legacy Autocomplete fallback';
 }
 
 async function enterSandbox() {

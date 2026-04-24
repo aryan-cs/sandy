@@ -33,6 +33,7 @@ There are two viable Google-backed paths:
 7. Apply a high-quality tile streaming preset: lower screen-space error, deeper traversal, larger cache, and higher loading concurrency.
 8. Start a pointer-lock first-person controller.
 9. Each animation frame updates camera movement, tile camera/resolution, tile streaming, rendering, and attribution display.
+10. The bottom-right `Map` button opens the same selector flow as an in-world modal. Applying a location tears down the active tileset and reloads the world at the new coordinates.
 
 ## Control Scheme
 

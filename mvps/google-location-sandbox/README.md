@@ -29,6 +29,7 @@ http://127.0.0.1:5173/
 
 - Search with Google Places Autocomplete, click the 2D map, use a preset, or type lat/lng manually.
 - Click `Enter 3D Sandbox` to load Google Photorealistic 3D Tiles at that coordinate.
+- Use the bottom-right `Map` button to reopen the selector and reload the world at a new location.
 - Click the 3D viewport to lock the mouse.
 - `WASD` moves and mouse looks.
 - `Shift` crouches while walking.
