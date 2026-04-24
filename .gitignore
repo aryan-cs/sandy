@@ -21,3 +21,6 @@ coverage/
 
 # Generated splat experiments, not source.
 mvps/splat-generated/
+
+# Keep template env files committed.
+!.env.example

@@ -60,6 +60,22 @@ http://127.0.0.1:4201/three-player-controller/3dtilesScene
 
 These examples are useful references for avatar/game controls, first-person/third-person toggles, vehicle controls, GLB collider handling, Gaussian splats, and 3D Tiles.
 
+## Run the Google location sandbox
+
+```bash
+./scripts/run_google_location_sandbox.sh
+```
+
+This MVP lets you choose a location with Google Maps/Places and then enter a first-person Three.js scene centered on that latitude/longitude using Google Photorealistic 3D Tiles.
+
+Required Google APIs:
+
+- Maps JavaScript API
+- Places API (New)
+- Map Tiles API
+
+No API keys are committed. Set `VITE_GOOGLE_MAPS_API_KEY` in `mvps/google-location-sandbox/.env` or paste a restricted development key into the app.
+
 ## Recommended architecture
 
 1. Captured-location mode: import a phone/drone/video scan, reconstruct or load a Gaussian splat/mesh, generate collision, and open it in a walkthrough viewer.

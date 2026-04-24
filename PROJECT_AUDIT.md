@@ -104,8 +104,25 @@ Use two parallel MVP tracks:
 
 1. Clean digital-twin viewer: keep `mvps/official-supersplat-walkthrough` on SuperSplat Viewer + SplatTransform. This is the best user-facing photoreal capture walkthrough.
 2. Game-feel prototype: adapt `external/three-player-controller` patterns if the next goal is an avatar, third-person/first-person gameplay, vehicles, jumping, mobile controls, and stronger GLB collider handling.
+3. Arbitrary outdoor-location prototype: use `mvps/google-location-sandbox` for Google Maps/Places selection plus Google Photorealistic 3D Tiles in a custom Three.js first-person renderer.
 
 Do not switch to `GaussianSplats3D` as primary runtime. Do not build product-critical capture on `OpenSplat` unless AGPL obligations are acceptable. Treat `Brush` as a promising capture/training/viewer track once Rust is available.
+
+## Google Location Sandbox
+
+| Path | Purpose | Verification |
+| --- | --- | --- |
+| `mvps/google-location-sandbox` | Lets a user choose a location through Google Maps/Places, then loads Google Photorealistic 3D Tiles centered on that lat/lng in a custom Three.js first-person scene. | `npm run build` succeeds. Live Google tiles/search require a Maps Platform key with Maps JavaScript API, Places API (New), and Map Tiles API enabled. |
+
+The implementation intentionally uses raw Google Photorealistic 3D Tiles through `3d-tiles-renderer` instead of Google Maps JS `Map3DElement`. `Map3DElement` is the easiest official 3D map view, but a sandbox game needs application-owned pointer lock, WASD, render loop, HUD, collision approximation, and later gameplay systems.
+
+Current constraints:
+
+- No API keys are committed.
+- The browser key must be restricted by HTTP referrer and API allowlist before public use.
+- Google tile attribution is displayed from `tiles.getAttributions()`.
+- The MVP uses downward raycasts against visible tile meshes for ground-follow approximation. Production collision still needs a proxy collider strategy or owned geometry.
+- Google tile content should not be cached, extracted, analyzed for non-visual purposes, or resold outside Google Maps Platform terms.
 
 ## Run The Working MVP
 
